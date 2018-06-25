@@ -31,6 +31,7 @@ ohg = {};
             
             initialized = true;
             ohg.loadShader("ohg-opaque");
+            //console.log(shaders);
             //ohg.loadShader("ohg-alpha-cut");
             
             prevFrameTimestamp = performance.now();
@@ -52,10 +53,52 @@ ohg = {};
             atlas.texture = gl.createTexture();
             atlas.grid = grid;
             gl.bindTexture(gl.TEXTURE_2D, atlas.texture);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 255, 255]));
-            loadTextureAsync(atlas.texture, imageURL);
+            const level = 0;
+            const internalFormat = gl.RGBA;
+            const width = 1;
+            const height = 1;
+            const border = 0;
+            const srcFormat = gl.RGBA;
+            const srcType = gl.UNSIGNED_BYTE;
+            const pixel = new Uint8Array([255, 255, 255, 255]);  // opaque blue
+            gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, width, height, border, srcFormat, srcType, pixel);
+            //gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 255, 255]));
+            //loadTextureAsync(atlas.texture, imageURL);
             atlases[name] = atlas;
         }
+    }
+    
+    ohg.generateSingleCellGrid = function(glyphName)
+    {
+        //return {glyphName : {"pos" : [0.0, 0.0], "size" : [1.0, 1.0]}};
+        grid = {};
+        grid[glyphName] = {};
+        grid[glyphName].pos = [0.0, 0.0];
+        grid[glyphName].size = [1.0, 1.0];
+        return grid;
+    }
+    
+    ohg.generateRegularGrid = function(glyphNames, atlasWidth, atlasHeight, glyphWidth, glyphHeight)
+    {
+        var wCount = Math.floor(atlasWidth / glyphWidth);
+        var hCount = Math.floor(atlasHeight / glyphHeight);
+        var uvSize = [1.0/wCount, 1.0/hCount];
+        var i = 0;
+        var j = 0;
+        grid = {};
+        for (var name in glyphNames)
+        {
+            grid[name] = {};
+            grid[name].pos = [uvSize[0]*i, 1.0 - uvSize[1]*(j+1)];
+            grid[name].size = uvSize;
+            i++;
+            if (i == wCount)
+            {
+                i = 0;
+                j++;
+            }
+        }
+        return grid;
     }
     
     ohg.loadShader = function(shaderName, onInitFunc = dummyShaderFunc, onUseFunc = dummyShaderFunc)
@@ -83,7 +126,7 @@ ohg = {};
             shader.resolutionUniform = gl.getUniformLocation(shader.program, "u_resolution");
             shader.matrixUniform = gl.getUniformLocation(shader.program, "u_matrix");
             shader.textureUniform = gl.getUniformLocation(shader.program, "u_texture");
-            shaders[name] = shader;        
+            shaders[shaderName] = shader;        
         }
     }
 
@@ -141,14 +184,17 @@ ohg = {};
             
             newLayer.positions = new Float32Array(numberOfQuads*8);
             newLayer.positionBuffer = gl.createBuffer();
-            newLayer.positionAttr = gl.getAttribLocation(shader.program, "a_position");
+            gl.bindBuffer(gl.ARRAY_BUFFER, newLayer.positionBuffer);
+            newLayer.positionAttr = gl.getAttribLocation(newLayer.shader.program, "a_position");
             
             newLayer.texCoords = new Float32Array(numberOfQuads*8);
             newLayer.texCoordsBuffer = gl.createBuffer();
-            newLayer.texCoordsAttr = gl.getAttribLocation(shader.program, "a_texcoord");
+            gl.bindBuffer(gl.ARRAY_BUFFER, newLayer.texCoordsBuffer);
+            newLayer.texCoordsAttr = gl.getAttribLocation(newLayer.shader.program, "a_texcoord");
             
             newLayer.indices = new Uint16Array(numberOfQuads*6);
             newLayer.indicesBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, newLayer.indicesBuffer);
             
             layers.push(newLayer);
             
@@ -274,6 +320,36 @@ ohg = {};
         return m3.multiply(m3.multiply(m3.translation(tx, ty), m3.rotation(rot)), m3.scaling(sx, sy));
     }
         
+    function isPowerOf2(value)
+    {
+        return (value & (value - 1)) == 0;
+    }
+    
+    function loadTextureAsync(texture, imageURL)
+    {
+        var image = new Image();
+        image.src = imageURL;
+        image.crossOrigin = "";
+        image.addEventListener('load', function() {
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+            //gl.generateMipmap(gl.TEXTURE_2D);            
+            // WebGL1 has different requirements for power of 2 images
+            // vs non power of 2 images so check if the image is a
+            // power of 2 in both dimensions.
+            if (isPowerOf2(image.width) && isPowerOf2(image.height)) {
+               // Yes, it's a power of 2. Generate mips.
+               gl.generateMipmap(gl.TEXTURE_2D);
+            } else {
+               // No, it's not a power of 2. Turn of mips and set
+               // wrapping to clamp to edge
+               gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+               gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+               gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            }            
+        });
+    }
+        
     function buildLayerGeometry(layer)
     {
         var indexCounter = 0;
@@ -306,19 +382,22 @@ ohg = {};
     }
     
     function renderLayer(layer)
-    {
-        gl.useProgram(layer.shader.program);
-        
+    {        
         gl.bindBuffer(gl.ARRAY_BUFFER, layer.positionBuffer);
+        //gl.bufferData(gl.ARRAY_BUFFER, layer.positions, layer.drawType);
         gl.vertexAttribPointer(layer.positionAttr, 2, gl.FLOAT, false, 0, 0);
         gl.enableVertexAttribArray(layer.positionAttr);
 
         gl.bindBuffer(gl.ARRAY_BUFFER, layer.texCoordsBuffer);
+        //gl.bufferData(gl.ARRAY_BUFFER, layer.texCoords, layer.drawType);
         gl.vertexAttribPointer(layer.texCoordsAttr, 2, gl.FLOAT, false, 0, 0);
         gl.enableVertexAttribArray(layer.texCoordsAttr);
 
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.indicesBuffer);
-                
+        //gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, layer.indices, layer.drawType);
+        
+        gl.useProgram(layer.shader.program);
+
         gl.uniform2f(layer.shader.resolutionUniform, gl.canvas.width, gl.canvas.height);
         
         if (layer.transformChanged)
@@ -327,7 +406,7 @@ ohg = {};
             layer.transformChanged = false;
         }        
         var totalTransform = m3.multiply(layer.transform, viewTransform.matrix);
-        gl.uniformMatrix3fv(matrixLocation, false, totalTransform);
+        gl.uniformMatrix3fv(layer.shader.matrixUniform, false, totalTransform);
         
         gl.uniform1i(layer.shader.textureUniform, 0);                
         gl.activeTexture(gl.TEXTURE0);
@@ -335,18 +414,7 @@ ohg = {};
         
         layer.shader.onUseFunc(layer);
 
-        gl.drawArrays(gl.TRIANGLES, 0, layer.numberOfIndices);
-    }
-    
-    function loadTextureAsync(texture, imageURL)
-    {
-        var image = new Image();
-        image.src = imageURL;
-        image.addEventListener('load', function() {
-            gl.bindTexture(gl.TEXTURE_2D, texture);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-            //gl.generateMipmap(gl.TEXTURE_2D);            
-        });
+        gl.drawElements(gl.TRIANGLES, layer.numberOfIndices, gl.UNSIGNED_SHORT, 0);
     }
     
     function createShader(gl, type, source) {
