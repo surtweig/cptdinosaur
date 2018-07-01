@@ -30,6 +30,7 @@
         -->
         
 <script id="ohg-opaque-v" type="notjs">
+precision highp float;
 
 attribute vec2 a_position;
 attribute vec2 a_texcoord;
@@ -38,37 +39,30 @@ uniform vec2 u_resolution;
 uniform mat3 u_matrix;
 
 varying vec2 v_texcoord;
+varying vec2 v_position;
 
 void main() {
-  // Multiply the position by the matrix.
   vec2 position = (u_matrix * vec3(a_position, 1)).xy;
+  position = 2.0*position / u_resolution - 1.0;
 
-  // convert the position from pixels to 0.0 to 1.0
-  vec2 zeroToOne = position / u_resolution;
-
-  // convert from 0->1 to 0->2
-  vec2 zeroToTwo = zeroToOne * 2.0;
-
-  // convert from 0->2 to -1->+1 (clipspace)
-  vec2 clipSpace = zeroToTwo - 1.0;
-
-  gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
   v_texcoord = a_texcoord;
+  v_position = position;
+  gl_Position = vec4(position.x, position.y, 0.0, 1.0);
 }
 
 </script>
 <script id="ohg-opaque-f" type="notjs">
+precision highp float;
 
-precision mediump float;
-
-// Passed in from the vertex shader.
 varying vec2 v_texcoord;
+varying vec2 v_position;
 
-// The texture.
+uniform vec2 u_resolution;
+
 uniform sampler2D u_texture;
 
 void main() {
-   gl_FragColor = texture2D(u_texture, v_texcoord);
+   gl_FragColor = texture2D(u_texture, v_texcoord);//vec4(fract(v_texcoord.x), fract(v_texcoord.y), 0.0, 1.0);
 }
 
 </script>        

@@ -16,7 +16,7 @@ ohg = {};
     
     ohg.timeScale = 1.0;
     ohg.onUpdate = function(deltaTime, timeSinceStart) {}
-    ohg.backgroundColor = [0, 0, 0, 1];
+    ohg.backgroundColor = [0, 0, 0.1, 1];
 
     ohg.init = function(canvas)
     {
@@ -60,10 +60,10 @@ ohg = {};
             const border = 0;
             const srcFormat = gl.RGBA;
             const srcType = gl.UNSIGNED_BYTE;
-            const pixel = new Uint8Array([255, 255, 255, 255]);  // opaque blue
+            const pixel = new Uint8Array([0, 64, 128, 255]);  // opaque blue
             gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, width, height, border, srcFormat, srcType, pixel);
             //gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 255, 255]));
-            //loadTextureAsync(atlas.texture, imageURL);
+            loadTextureAsync(atlas.texture, imageURL);
             atlases[name] = atlas;
         }
     }
@@ -268,10 +268,10 @@ ohg = {};
             var uvPosition = layer.atlas.grid[glyphName].pos;
             var uvSize = layer.atlas.grid[glyphName].size;
             q.uv = [
-                uvPosition[0],           uvPosition[1],
-                uvPosition[0]+uvSize[0], uvPosition[1],
+                uvPosition[0],           uvPosition[1]+uvSize[1],
                 uvPosition[0]+uvSize[0], uvPosition[1]+uvSize[1],
-                uvPosition[0],           uvPosition[1]+uvSize[1]
+                uvPosition[0]+uvSize[0], uvPosition[1],
+                uvPosition[0],           uvPosition[1]
             ];
             q.visible = true;
         }
@@ -283,7 +283,7 @@ ohg = {};
         ohg.onUpdate(deltaTime, time);
         time += deltaTime;
         
-        gl.viewport(-gl.canvas.width/2, -gl.canvas.height/2, gl.canvas.width, gl.canvas.height);
+        gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
         gl.clearColor(ohg.backgroundColor[0], ohg.backgroundColor[1], ohg.backgroundColor[2], ohg.backgroundColor[3]);
         gl.clear(gl.COLOR_BUFFER_BIT);
         
