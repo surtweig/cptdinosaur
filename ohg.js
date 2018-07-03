@@ -16,7 +16,7 @@ ohg = {};
     
     ohg.timeScale = 1.0;
     ohg.onUpdate = function(deltaTime, timeSinceStart) {}
-    ohg.backgroundColor = [0, 0, 0.1, 1];
+    ohg.backgroundColor = [0, 0, 0, 0];
 
     ohg.init = function(canvas)
     {
@@ -31,8 +31,7 @@ ohg = {};
             
             initialized = true;
             ohg.loadShader("ohg-opaque");
-            //console.log(shaders);
-            //ohg.loadShader("ohg-alpha-cut");
+            ohg.loadShader("ohg-color-cut", ["u_transparentColor", "u_threshold"]);
             
             prevFrameTimestamp = performance.now();
             requestAnimationFrame(update);
@@ -101,7 +100,7 @@ ohg = {};
         return grid;
     }
     
-    ohg.loadShader = function(shaderName, onInitFunc = dummyShaderFunc, onUseFunc = dummyShaderFunc)
+    ohg.loadShader = function(shaderName, customUniforms = [], onInitFunc = dummyShaderFunc, onUseFunc = dummyShaderFunc)
     {
         if (initialized)
         {
@@ -126,6 +125,13 @@ ohg = {};
             shader.resolutionUniform = gl.getUniformLocation(shader.program, "u_resolution");
             shader.matrixUniform = gl.getUniformLocation(shader.program, "u_matrix");
             shader.textureUniform = gl.getUniformLocation(shader.program, "u_texture");
+            shader.customUniforms = {};
+            for (var uni in customUniforms)
+            {
+                uname = customUniforms[uni];
+                shader.customUniforms[uname] = gl.getUniformLocation(shader.program, uname);
+            }
+
             shaders[shaderName] = shader;        
         }
     }
@@ -181,6 +187,10 @@ ohg = {};
             newLayer.transformChanged = true;
             newLayer.numberOfIndices = 0;
             newLayer.drawType = isDynamic ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW;
+            newLayer.uniforms1f = {};
+            newLayer.uniforms2f = {};
+            newLayer.uniforms3f = {};
+            newLayer.uniforms4f = {};
             
             newLayer.positions = new Float32Array(numberOfQuads*8);
             newLayer.positionBuffer = gl.createBuffer();
@@ -277,6 +287,18 @@ ohg = {};
         }
     }
     
+    ohg.layerSetShaderUniform = function(layerIndex, uniformName, uniformData)
+    {
+        if (typeof uniformData === "number")
+            layers[layerIndex].uniforms1f[uniformName] = uniformData;
+        else if (uniformData.length == 2)
+            layers[layerIndex].uniforms2f[uniformName] = uniformData;
+        else if (uniformData.length == 3)
+            layers[layerIndex].uniforms3f[uniformName] = uniformData;
+        else if (uniformData.length == 4)
+            layers[layerIndex].uniforms4f[uniformName] = uniformData;
+    }
+    
     function update(timestamp)
     {
         var deltaTime = (timestamp-prevFrameTimestamp)*0.0001*ohg.timeScale;        
@@ -345,7 +367,8 @@ ohg = {};
                // wrapping to clamp to edge
                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-               gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+               gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+               gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
             }            
         });
     }
@@ -411,6 +434,22 @@ ohg = {};
         gl.uniform1i(layer.shader.textureUniform, 0);                
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, layer.atlas.texture);        
+        
+        for (var uname in layer.uniforms1f)
+            if (uname in layer.shader.customUniforms)
+                gl.uniform1f(layer.shader.customUniforms[uname], layer.uniforms1f[uname]);
+
+        for (var uname in layer.uniforms2f)
+            if (uname in layer.shader.customUniforms)
+                gl.uniform2f(layer.shader.customUniforms[uname], layer.uniforms2f[uname][0], layer.uniforms2f[uname][1]);
+        
+        for (var uname in layer.uniforms3f)
+            if (uname in layer.shader.customUniforms)
+                gl.uniform3f(layer.shader.customUniforms[uname], layer.uniforms3f[uname][0], layer.uniforms3f[uname][1], layer.uniforms3f[uname][2]);
+        
+        for (var uname in layer.uniforms4f)
+            if (uname in layer.shader.customUniforms)
+                gl.uniform4f(layer.shader.customUniforms[uname], layer.uniforms4f[uname][0], layer.uniforms4f[uname][1], layer.uniforms4f[uname][2], layer.uniforms4f[uname][3]);
         
         layer.shader.onUseFunc(layer);
 
