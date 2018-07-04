@@ -59,7 +59,7 @@ ohg = {};
             const border = 0;
             const srcFormat = gl.RGBA;
             const srcType = gl.UNSIGNED_BYTE;
-            const pixel = new Uint8Array([0, 64, 128, 255]);  // opaque blue
+            const pixel = new Uint8Array([0, 0, 0, 255]);
             gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, width, height, border, srcFormat, srcType, pixel);
             //gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 255, 255]));
             loadTextureAsync(atlas.texture, imageURL);
@@ -85,10 +85,11 @@ ohg = {};
         var i = 0;
         var j = 0;
         grid = {};
-        for (var name in glyphNames)
+        for (var index in glyphNames)
         {
+            var name = glyphNames[index]; 
             grid[name] = {};
-            grid[name].pos = [uvSize[0]*i, 1.0 - uvSize[1]*(j+1)];
+            grid[name].pos = [uvSize[0]*i, uvSize[1]*j];
             grid[name].size = uvSize;
             i++;
             if (i == wCount)
@@ -185,6 +186,7 @@ ohg = {};
             newLayer.visible = true;
             newLayer.quadsChanged = true;
             newLayer.transformChanged = true;
+            newLayer.dismissed = false;
             newLayer.numberOfIndices = 0;
             newLayer.drawType = isDynamic ? gl.DYNAMIC_DRAW : gl.STATIC_DRAW;
             newLayer.uniforms1f = {};
@@ -206,7 +208,19 @@ ohg = {};
             newLayer.indicesBuffer = gl.createBuffer();
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, newLayer.indicesBuffer);
             
-            layers.push(newLayer);
+            var foundDismissed = false;
+            for (var i in layers)
+            {
+                if (layers[i].dismissed)
+                {
+                    newLayer.index = layers[i].index;
+                    layers[i] = newLayer;
+                    foundDismissed = true;
+                    break;
+                }
+            }
+            if (!foundDismissed)
+                layers.push(newLayer);
             
             newLayer.shader.onInitFunc(newLayer);
             
@@ -214,30 +228,40 @@ ohg = {};
         }
     }
     
+    ohg.addTextLineLayer = function(name, atlasName, shaderName, text, charWidth, charHeight)
+    {
+        var layerIndex = ohg.addLayer(name, atlasName, shaderName, text.length, false);
+        for (var ci = 0; ci < text.length; ci++)
+        {
+            var char = text.charAt(ci);
+            ohg.layerSetQuad(layerIndex, ci, [ci*charWidth, 0.0], [charWidth, charHeight], char);
+            
+        }
+        console.log(layers[layerIndex].quads);
+        return layerIndex;
+    }
+    
     ohg.getLayerIndex = function(name)
     {
-        if (initialized)
-        {
-            return layers.find(function(layer) {return layer.name === name}).index;
-        }
+        return layers.find(function(layer) {return layer.name === name}).index;
+    }
+    
+    ohg.layerDismiss = function(layerIndex)
+    {
+        layers[layerIndex].visible = false;
+        layers[layerIndex].dismissed = true;
     }
     
     ohg.layerSetVisible = function(layerIndex, visible)
     {
-        if (initialized)
-        {
-            layers[layerIndex].visible = visible;
-        }
+        layers[layerIndex].visible = visible;
     }
     
     ohg.layerSwap = function(layerIndexA, layerIndexB)
     {
-        if (initialized)
-        {
-            var layerA = layers[layerIndexA];
-            layers[layerIndexA] = layers[layerIndexB];
-            layers[layerIndexB] = layerA;
-        }
+        var layerA = layers[layerIndexA];
+        layers[layerIndexA] = layers[layerIndexB];
+        layers[layerIndexB] = layerA;
     }
     
     ohg.layerSetTranslation = function(layerIndex, translation)
@@ -263,28 +287,25 @@ ohg = {};
     
     ohg.layerSetQuad = function(layerIndex, quadIndex, quadPosition, quadSize, glyphName)
     {
-        if (initialized)
-        {
-            var layer = layers[layerIndex];
-            layer.quadsChanged = true;
-            var q = layers[layerIndex].quads[quadIndex];
-            q.pos = [
-                quadPosition[0],             quadPosition[1],
-                quadPosition[0]+quadSize[0], quadPosition[1],
-                quadPosition[0]+quadSize[0], quadPosition[1]+quadSize[1],
-                quadPosition[0],             quadPosition[1]+quadSize[1]
-            ];
-            
-            var uvPosition = layer.atlas.grid[glyphName].pos;
-            var uvSize = layer.atlas.grid[glyphName].size;
-            q.uv = [
-                uvPosition[0],           uvPosition[1]+uvSize[1],
-                uvPosition[0]+uvSize[0], uvPosition[1]+uvSize[1],
-                uvPosition[0]+uvSize[0], uvPosition[1],
-                uvPosition[0],           uvPosition[1]
-            ];
-            q.visible = true;
-        }
+        var layer = layers[layerIndex];
+        layer.quadsChanged = true;
+        var q = layer.quads[quadIndex];
+        q.pos = [
+            quadPosition[0],             quadPosition[1],
+            quadPosition[0]+quadSize[0], quadPosition[1],
+            quadPosition[0]+quadSize[0], quadPosition[1]+quadSize[1],
+            quadPosition[0],             quadPosition[1]+quadSize[1]
+        ];
+        //console.log(layer.atlas.grid);
+        var uvPosition = layer.atlas.grid[glyphName].pos;
+        var uvSize = layer.atlas.grid[glyphName].size;
+        q.uv = [
+            uvPosition[0],           uvPosition[1]+uvSize[1],
+            uvPosition[0]+uvSize[0], uvPosition[1]+uvSize[1],
+            uvPosition[0]+uvSize[0], uvPosition[1],
+            uvPosition[0],           uvPosition[1]
+        ];
+        q.visible = true;
     }
     
     ohg.layerSetShaderUniform = function(layerIndex, uniformName, uniformData)
@@ -334,7 +355,7 @@ ohg = {};
         q.pos = new Array(8).fill(0.0);
         q.uv = new Array(8).fill(0.0);
         q.visible = false;
-        return quad;
+        return q;
     }
     
     function trs(tx, ty, rot, sx, sy)
@@ -380,11 +401,11 @@ ohg = {};
         var vertexCounter = 0;
         for (var quadIndex = 0; quadIndex < layer.quads.length; quadIndex++)
         {
-            var quad = layer.quads[quadIndex];
-            if (quad.visible)
+            var q = layer.quads[quadIndex];
+            if (q.visible)
             {
-                layer.positions.set(quad.pos, posCounter);
-                layer.texCoords.set(quad.uv, posCounter);
+                layer.positions.set(q.pos, posCounter);
+                layer.texCoords.set(q.uv, posCounter);
                 // 12
                 // 03
                 layer.indices.set([vertexCounter, vertexCounter+1, vertexCounter+3,
